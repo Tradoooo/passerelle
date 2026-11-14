@@ -45,42 +45,36 @@ stage() {
 stage "$ROOT/build-qnx/drivers/fs9p" fs9p
 stage "$ROOT/build-qnx/drivers/fsfuse" fsfuse
 
-# The bench: the measurements, taken inside the guest (PERF-03, PERF-05).
-BENCH_SRC="$ROOT/tests/qemu/qnx8/qbench.c"
-if [ -f "$BENCH_SRC" ]; then
-    if qcc -Vgcc_ntox86_64 -D_QNX_SOURCE=1 -O2 -o "$BUILD/stage/qbench" \
-        "$BENCH_SRC" 2>/dev/null; then
-        echo "built the bench"
-    else
-        echo "note: the bench did not build"
+# One cross-compile, one message: every guest program is built the same way, and
+# a missing source or a missing SDP compiler leaves the image booting without it
+# (the fragment's entries are [+optional]).
+#   build_for_target <source.c> <out-name> [dir]
+# `dir` defaults to the staging directory; the FS-06 demo goes to the share, so
+# the guest can reach it through the driver instead of through /proc/boot.
+build_for_target() {
+    src="$1"
+    name="$2"
+    dir="${3:-$BUILD/stage}"
+    if [ ! -f "$src" ]; then
+        echo "note: $src absent - the image boots without $name"
+        return 0
     fi
-fi
+    mkdir -p "$dir"
+    if qcc -Vgcc_ntox86_64 -D_QNX_SOURCE=1 -O2 -o "$dir/$name" "$src" 2>/dev/null; then
+        echo "built $name"
+    else
+        echo "note: $name did not build (no SDP compiler?)"
+    fi
+}
 
-# The clock probe: what the guest answers for clock_gettime() and nanosleep().
-CLOCK_SRC="$ROOT/tests/qemu/qnx8/clockprobe.c"
-if [ -f "$CLOCK_SRC" ]; then
-    if qcc -Vgcc_ntox86_64 -D_QNX_SOURCE=1 -O2 -o "$BUILD/stage/clockprobe" \
-        "$CLOCK_SRC" 2>/dev/null; then
-        echo "built the clock probe"
-    else
-        echo "note: the clock probe did not build"
-    fi
-fi
+stage "$ROOT/build-qnx/drivers/fs9p" fs9p
+stage "$ROOT/build-qnx/drivers/fsfuse" fsfuse
 
-# The FS-06 demo: a program the guest executes straight from the share. It is
-# built for the target when the SDP is there, and simply absent otherwise
-# (the image still boots).
-DEMO_SRC="$ROOT/tests/qemu/qnx8/fs6-demo.c"
-DEMO_OUT="$BUILD/share/fs6-demo"
-if [ -f "$DEMO_SRC" ]; then
-    mkdir -p "$BUILD/share"
-    if qcc -Vgcc_ntox86_64 -D_QNX_SOURCE=1 -O2 -o "$DEMO_OUT" "$DEMO_SRC" \
-        2>/dev/null; then
-        echo "built the FS-06 demo: $DEMO_OUT"
-    else
-        echo "note: the FS-06 demo did not build (no SDP compiler?)"
-    fi
-fi
+QNX8="$ROOT/tests/qemu/qnx8"
+build_for_target "$QNX8/qbench.c" qbench
+build_for_target "$QNX8/clockprobe.c" clockprobe
+build_for_target "$QNX8/mapprobe.c" mapprobe
+build_for_target "$QNX8/fs6-demo.c" fs6-demo "$BUILD/share"
 
 cd "$ROOT"
 mkifs -v -v -o "$BUILD" tests/qemu/qnx8/passerelle.build "$BUILD/passerelle.ifs"

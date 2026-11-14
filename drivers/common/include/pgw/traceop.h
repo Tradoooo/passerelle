@@ -47,6 +47,7 @@ enum pgw_op {
     PGW_OP_LINK,
     PGW_OP_READLINK,
     PGW_OP_CLOSE,
+    PGW_OP_MMAP,    /* the memory manager mapping a file's segments (FS-06) */
     PGW_OP_LOOKUP,  /* path resolution: 9P Twalk, FUSE LOOKUP */
     PGW_OP_SESSION, /* version/attach/flush: no file operation behind it */
     PGW_OP_OTHER,   /* a message this project's table does not know */

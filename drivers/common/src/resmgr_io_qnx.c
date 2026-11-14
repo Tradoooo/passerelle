@@ -366,13 +366,29 @@ static int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_OCB_T *raw)
     return rc;
 }
 
+/* The memory manager's mapping of a file's segments. It is a request like every
+ * other and QNX-09 says "each request", so it is traced: without it the trace of
+ * an exec shows the reads and lookups of the shell fallback but not the mapping
+ * the loader asked for, which is the one event that tells the two apart (FS-06).
+ */
+static int io_mmap(resmgr_context_t *ctp, io_mmap_t *msg, RESMGR_OCB_T *raw)
+{
+    pgw_prio_state prio;
+    pgw_prio_enter(ctp, &prio);
+    pgw_trace_req(PGW_OP_MMAP, 0);
+    int rc = iofunc_mmap_default(ctp, msg, raw);
+    pgw_trace_rep(PGW_OP_MMAP, 0, rc);
+    pgw_prio_leave(&prio);
+    return rc;
+}
+
 void pgw_resmgr_io_init(resmgr_io_funcs_t *io)
 {
     /* The kernel maps the segments of an executable through the _IO_MMAP
      * message: without this callout the process manager cannot execute a
      * program the filesystem serves (FS-06, "iofunc_mmap_default()" in the
      * QNX 8.0 documentation). */
-    io->mmap = iofunc_mmap_default;
+    io->mmap = io_mmap;
     io->read = pgw_io_read;
     io->read64 = pgw_io_read;
     io->write = io_write;

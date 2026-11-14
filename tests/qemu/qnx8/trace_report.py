@@ -39,7 +39,7 @@ import sys
 OPS = (
     "OPEN", "READ", "WRITE", "STAT", "READDIR", "LSEEK", "CHMOD", "CHOWN",
     "UTIME", "TRUNC", "SYNC", "DEVCTL", "UNLINK", "RENAME", "MKDIR", "SYMLINK",
-    "LINK", "READLINK", "CLOSE", "LOOKUP", "SESSION", "OTHER",
+    "LINK", "READLINK", "CLOSE", "MMAP", "LOOKUP", "SESSION", "OTHER",
 )
 
 # TRACEPARSER: ... e:5 EVENT S CPU00 class:_TRACE_USER_C func:38 00011826
@@ -197,6 +197,69 @@ def report(trips: list[dict], rate: int | None) -> None:
               "cycles only)")
 
 
+def resmgr_edges(events: list[dict]) -> None:
+    """Break the unpaired handler events down by operation and status.
+
+    The transport trips say what the driver asked the PC and what the PC
+    answered. The handler edges say something the trips cannot: a request the
+    resource manager refuses *before* it reaches the transport leaves no trip
+    behind at all. `iofunc_read_verify()` answering EBADF, or `iofunc_mmap()`
+    answering EACCES, is exactly that shape - so a trace read only through its
+    pairs looks clean while the exec is being refused.
+
+    These events carry no protocol tag (the handlers have none to pair on), so
+    they cannot be paired; what they can do is count, per operation, how many
+    submissions and how many replies went out and with which status. That is
+    enough to name the refusal, which is what the diagnosis needs.
+    """
+    subs: dict[int, int] = {}
+    reps: dict[tuple[int, int], int] = {}
+    for ev in events:
+        if ev["tag"] != 0:
+            continue
+        if ev["kind"] == "req":
+            subs[ev["op"]] = subs.get(ev["op"], 0) + 1
+        else:
+            key = (ev["op"], ev["status"])
+            reps[key] = reps.get(key, 0) + 1
+    if not subs and not reps:
+        return
+    print("resmgr: handler edges (no protocol tag, so they are counted, not "
+          "paired)")
+    for op in sorted(set(list(subs) + [o for o, _ in reps])):
+        s = subs.get(op, 0)
+        ok = reps.get((op, 0), 0)
+        bad = {st: n for (o, st), n in reps.items() if o == op and st != 0}
+        line = f"  {ops_name(op):<10} submitted={s:<4} accepted={ok:<4}"
+        if bad:
+            line += " refused: " + ", ".join(
+                f"{n}x {st}" for st, n in sorted(bad.items(), key=lambda kv: -kv[1]))
+        print(line)
+
+
+def errors(trips: list[dict]) -> None:
+    """The replies that came back with a status, by operation and status.
+
+    The reply event carries the status the driver answered (0 when the request
+    was accepted). Grouping the non-zero ones is what turns a trace into a
+    diagnosis: a run that fails shows *which* operation failed, not only that
+    operations ran. An exec attempt, for instance, is a sequence of opens,
+    lookups and reads, and the one that carries the errno is the answer.
+    """
+    bad: dict[tuple[str, int], int] = {}
+    for t in trips:
+        if t["status"] == 0:
+            continue
+        key = (t["op"], t["status"])
+        bad[key] = bad.get(key, 0) + 1
+    if not bad:
+        print("errors: none: every reply carried status 0")
+        return
+    print("errors: replies that carried a non-zero status")
+    for (op, status), n in sorted(bad.items(), key=lambda kv: -kv[1]):
+        print(f"  {ops_name(op):<10} status={status:<4} x{n}")
+
+
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("transcript", type=pathlib.Path)
@@ -243,6 +306,8 @@ def main() -> int:
     if rate:
         print(f"trace: kernel cycle rate {rate} cycles/s")
     report(trips, rate)
+    resmgr_edges(events)
+    errors(trips)
     if args.csv:
         write_csv(args.csv, trips)
         print(f"trace: round trips in {args.csv}")

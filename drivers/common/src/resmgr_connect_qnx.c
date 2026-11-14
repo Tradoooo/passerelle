@@ -119,6 +119,23 @@ static int connect_open(resmgr_context_t *ctp, io_open_t *msg,
     if (path == NULL || path[0] == '\0')
         path = "/";
     uint32_t ioflag = msg->connect.ioflag;
+    /* What the exec open carries, at debug level.
+     *
+     * Measured on the real guest (14 November 2026): the process manager does not
+     * send a plain `_IO_CONNECT_OPEN` to execute a file - it sends a
+     * `_IO_CONNECT_COMBINE_CLOSE` with `_IO_FLAG_EX|O_PERMCHECK|O_REALIDS` (the
+     * permission check) and then a `_IO_CONNECT_COMBINE` whose 8-byte second
+     * message is an `_IO_STAT`. `_IO_MMAP` never arrives at all, which is the
+     * shape of a loader that refused the file before mapping it. That is FS-06,
+     * and the smallest thing that records it is the subtype with the flags - not
+     * forty bytes of hex, which is what an earlier version of this line printed.
+     */
+    if ((ioflag & _IO_FLAG_EX) != 0u)
+        PGW_DBG("fs9p: exec open: subtype=%u ioflag=0x%x extra_len=%u "
+                 "reply_max=%u", (unsigned)msg->connect.subtype, (unsigned)ioflag,
+                 (unsigned)msg->connect.extra_len,
+                 (unsigned)msg->connect.reply_max);
+
     pgw_fs_cred cred;
     if (pgw_cred_from_ctp(ctp, &cred) != PGW_OK)
         return EACCES;
