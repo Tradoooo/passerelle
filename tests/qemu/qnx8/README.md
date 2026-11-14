@@ -154,25 +154,40 @@ kernel remove the namespace entry when the process exits, and a supervisor
 remounts it. `slay fs9p` returns, the console keeps answering, and the mount is
 back.
 
-**Executing a program of the share does not work yet.** The kernel asks the
-filesystem for the *exec info* - the interpreter and its arguments - when a
-client opens a file with `_IO_FLAG_EX` (observed: the open arrives with
-`ioflag & _IO_FLAG_EX`, twice). A filesystem that serves an executable has to
-answer that open with a **link reply** whose path carries the exec information
-(the interpreter path, then the arguments, NUL separated, with a final empty
-string) and whose server entry carries the OCB, so that the kernel can map the
-segments afterwards. The driver answers with the ordinary open reply, the
-kernel finds no interpreter and falls back to the shell, which chokes on the
-binary.
+**Executing a program of the share does not work yet — and it is not the exec
+reply.** Measured on this guest on 14 November 2026, with the tools in this
+directory:
 
-The `_IO_MMAP` callout is now in place (`iofunc_mmap_default()`), which the
-QNX 8.0 documentation requires for a filesystem whose binaries the process
-manager must be able to execute; the kernel never reaches it, because it stops
-at the missing exec info. Two things are still missing: the reply itself, and
-the OCB it must carry - our open path lets `iofunc_ocb_attach()` allocate the
-OCB, so the driver never sees its address (the `ocb_calloc` hook would have to
-hand it over). `tests/qemu/qnx8/fs6-demo.c` is the program that would be
-executed: it is cross-compiled by `build-image.sh` and put in the share.
+* the bytes are right. `pread` at offsets 0, 64, 512, 1024, 2048 and 4096
+  returns the host's own bytes, and a copy of the binary made *through the
+  driver* executes from `/dev/shmem` (`mapprobe`, `fs6_ab.py`);
+* the mount does not forbid it. `statvfs` reports `RDONLY|NOSUID` and no
+  `NOEXEC`, and `access(X_OK)` returns 0 (`mapprobe`);
+* the mapping is not refused. `mmap` with `PROT_READ|PROT_EXEC` on an `O_RDONLY`
+  descriptor is answered, and the ELF magic is read through it — and the same
+  request on an `O_EXEC` descriptor is refused **by the control too**, so that
+  refusal is QNX and not this driver (`mmap_matrix.py`);
+* the loader never asks for a mapping. The kernel trace of an exec attempt
+  (`exec_two.py`, then `trace_report.py`) carries opens, lookups, stats and 41
+  reads, and **no `_IO_MMAP` event at all**. 41 reads on a 9 KiB binary is the
+  shape of `/bin/sh` swallowing it as a script, which is the "no closing quote"
+  the console shows.
+
+What the exec open actually is, read off the message the process manager sends:
+a `_IO_CONNECT_COMBINE_CLOSE` with `_IO_FLAG_EX|O_PERMCHECK|O_REALIDS` — a
+permission check, not an open — then a `_IO_CONNECT_COMBINE` whose 8-byte second
+message is an `_IO_STAT` (`access()`). `_IO_FLAG_EX` is `0x04` on the wire and
+`000003` in `fcntl.h`; conflating the two is what an earlier note in this file
+did, and the decoder (`decode_exec_open.py`) now reads them apart.
+
+So the missing piece is **not** a link reply with an invented exec-info format.
+It is upstream of that: the process manager declines the file before it maps
+anything, and every candidate this directory can measure has been eliminated.
+The `_IO_MMAP` callout is in place (`iofunc_mmap_default()`, PR #79) and traced,
+so the next run can see a mapping request if one ever arrives. `fs6-demo.c` is
+the program; `mapprobe.c`, `fs6_ab.py`, `mmap_matrix.py`, `exec_two.py` and
+`decode_exec_open.py` are the measurements, kept here because each one closed a
+hypothesis that reading the code could not close.
 
 **`clockprobe.c`** answers, at boot, the two calls the driver's deadlines are
 built on (`clock_gettime(CLOCK_MONOTONIC)` and `nanosleep()`): both work in the

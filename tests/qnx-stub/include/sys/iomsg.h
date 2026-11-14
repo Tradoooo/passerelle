@@ -102,6 +102,11 @@
  * O_RDWR(2)->RD|WR. Source: the _io_connect() page cited above. */
 #define _IO_FLAG_RD 0x01u
 #define _IO_FLAG_WR 0x02u
+/* The fourth access mode QNX has: execute. It is 0x04 on the wire, not the
+ * 000003 of O_EXEC in fcntl.h - measured in the exec open the process manager
+ * sends for a file of the share (FS-06), which is why the stub carries the
+ * number rather than a guess at it. */
+#define _IO_FLAG_EX 0x04u
 
 /* --- extended types of a read/write message ------------------------------- */
 

@@ -155,6 +155,7 @@ tracelogger=tracelogger
 traceprinter=traceprinter
 
 [type=link] cat=toybox
+[type=link] chmod=toybox
 [type=link] grep=toybox
 [type=link] head=toybox
 [type=link] ls=toybox
@@ -167,6 +168,7 @@ traceprinter=traceprinter
 # the project (drivers/); until they exist the three entries are skipped, and
 # the image still boots with the kernel, the C library and the PCI server.
 [+optional] clockprobe=clockprobe
+[+optional] mapprobe=mapprobe
 [+optional] qbench=qbench
 [+optional] fs9p=fs9p
 [+optional] fsfuse=fsfuse

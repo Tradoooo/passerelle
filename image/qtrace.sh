@@ -85,10 +85,18 @@ echo "$TL"
 
 # Two runs at two priorities, so the same operation appears in the trace at both
 # priorities (QNX-03) beside the bulk load that saturates the transport (QNX-04).
-say "INFO bench priority 63"
-qbench prio /host/big.bin /host/from-host.txt 63
-say "INFO bench priority 10"
-qbench prio /host/big.bin /host/from-host.txt 10
+# PGW_TRACE_CMD replaces the benchmark, so the same recording can be pointed at
+# any request the guest makes - an exec, for instance, whose shape the trace
+# shows better than any reading of the code does.
+if [ -n "$PGW_TRACE_CMD" ]; then
+    say "INFO cmd: $PGW_TRACE_CMD"
+    $PGW_TRACE_CMD
+else
+    say "INFO bench priority 63"
+    qbench prio /host/big.bin /host/from-host.txt 63
+    say "INFO bench priority 10"
+    qbench prio /host/big.bin /host/from-host.txt 10
+fi
 
 slay "$TL" >/dev/null 2>&1
 sleep 1
